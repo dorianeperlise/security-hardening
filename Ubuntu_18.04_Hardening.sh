@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Configurations
-readonly SSH_USERS="shanks"
+readonly SSH_USERS=""
 readonly CRON_ALLOW_CONFIG_FILE="/etc/cron.allow"
 readonly SSH_CONFIG_FILE="/etc/ssh/sshd_config"
 readonly COMMON_PWD_CONFIG_FILE="/etc/pam.d/common-password"
@@ -17,14 +17,33 @@ function print_banner() {
   echo ""
 }
 
+function backup_files() {
+  TIME=$(date "+%H%M%S%m%d%y")
+  BACKUP_DIR="backup-${TIME}"
+  BACKUP_FILES=(
+    ${CRON_ALLOW_CONFIG_FILE}
+    ${SSH_CONFIG_FILE}
+    ${COMMON_PWD_CONFIG_FILE}
+    ${PAM_PWQUALITY_FILE}
+    ${COMMON_AUTH_CONFIG_FILE}
+    ${LOGIN_CONFIG_FILE}
+  )
+  mkdir ~/${BACKUP_DIR}
+  for FILE in "${BACKUP_FILES[@]}"; do
+    if [[ -f ${FILE} ]]; then
+      cp ${FILE} ~/"${BACKUP_DIR}/"
+    fi
+  done
+}
+
 function has_config() {
   PATTERN=$1
   FILE=$2
-  if [ ! -f $FILE ]; then
-    echo "File $FILE does not exist"
+  if [[ ! -f ${FILE} ]]; then
+    echo "File ${FILE} does not exist"
     exit 1
   fi
-  if ! egrep -qi $PATTERN $FILE; then
+  if ! egrep -qi ${PATTERN} ${FILE}; then
     return 0
   fi
   return 1
@@ -32,27 +51,27 @@ function has_config() {
 
 function mark_hardening() {
   FILE_NAME=$1
-  has_config "^\s*#\s*Teko\s*Security\s*Hardening" $FILE_NAME
-  if [ $? -eq 0 ]; then
-    echo "" >> $FILE_NAME
-    echo "# Teko Security Hardening" >> $FILE_NAME
+  has_config "^\s*#\s*Teko\s*Security\s*Hardening" ${FILE_NAME}
+  if [[ $? -eq 0 ]]; then
+    echo "" >> ${FILE_NAME}
+    echo "# Teko Security Hardening" >> ${FILE_NAME}
   fi
 }
 
 function harden() {
   CHECKLIST=$1
   FILE_NAME=$2
-  mark_hardening "$FILE_NAME"
+  mark_hardening ${FILE_NAME}
   for ITEM in "${CHECKLIST[@]}"; do
-    IFS='|' read -r CONFIG_NAME VALID_PATTERN VALID_CONFIG <<< $ITEM
-    has_config "^\s*$CONFIG_NAME" $FILE_NAME
-    if [ $? -eq 0 ]; then
-      echo $VALID_CONFIG >> $FILE_NAME
+    IFS='|' read -r CONFIG_NAME VALID_PATTERN VALID_CONFIG <<< ${ITEM}
+    has_config "^\s*${CONFIG_NAME}" ${FILE_NAME}
+    if [[ $? -eq 0 ]]; then
+      echo ${VALID_CONFIG} >> ${FILE_NAME}
     else
-      has_config $VALID_PATTERN $FILE_NAME
-      if [ $? -eq 0 ]; then
-        sed -i "s/^\s*$CONFIG_NAME/# $CONFIG_NAME/" $FILE_NAME
-        echo $VALID_CONFIG >> $FILE_NAME
+      has_config ${VALID_PATTERN} ${FILE_NAME}
+      if [[ $? -eq 0 ]]; then
+        sed -i "s/^\s*${CONFIG_NAME}/# ${CONFIG_NAME}/" ${FILE_NAME}
+        echo ${VALID_CONFIG} >> ${FILE_NAME}
       fi
     fi
   done
@@ -75,7 +94,7 @@ function configure_cron() {
   chown root:root /etc/cron.allow /etc/at.allow
   chmod og-rwx /etc/cron.allow /etc/at.allow
   CHECKLIST=("root|^\s*root\s*$|root")
-  harden "$CHECKLIST" "$CRON_ALLOW_CONFIG_FILE"
+  harden "${CHECKLIST}" "${CRON_ALLOW_CONFIG_FILE}"
 }
 
 function configure_ssh() {
@@ -111,7 +130,7 @@ function configure_ssh() {
     # Ensure SSH access is limited
     "AllowUsers|^\s*AllowUsers\s+$SSH_USERS\s*$|AllowUsers $SSH_USERS"
   )
-  harden "$CHECKLIST" "$SSH_CONFIG_FILE"
+  harden "${CHECKLIST}" "${SSH_CONFIG_FILE}"
   # Ensure SSH warning banner is configured
   rm -f /etc/issue.net && touch /etc/issue.net
   chown root:root /etc/issue.net && chmod 644 /etc/issue.net
@@ -120,9 +139,9 @@ function configure_ssh() {
   echo "#           All connections are monitored and recorded            #" >> /etc/issue.net
   echo "#    Disconnect IMMEDIATELY if you are not an authorized user!    #" >> /etc/issue.net
   echo "###################################################################" >> /etc/issue.net
-  has_config "^\s*Banner\s*\/etc\/issue.net\s*$" $SSH_CONFIG_FILE
-  if [ $? -eq 0 ]; then
-    echo "Banner /etc/issue.net" >> $SSH_CONFIG_FILE
+  has_config "^\s*Banner\s*\/etc\/issue.net\s*$" ${SSH_CONFIG_FILE}
+  if [[ $? -eq 0 ]]; then
+    echo "Banner /etc/issue.net" >> ${SSH_CONFIG_FILE}
   fi
 }
 
@@ -138,16 +157,16 @@ function configure_pam() {
   dpkg -i libpam-pwquality_1.4.0-2_amd64.deb
   cd ..
   sleep 10s
-  mark_hardening $COMMON_PWD_CONFIG_FILE
+  mark_hardening ${COMMON_PWD_CONFIG_FILE}
   # Ensure password creation requirements are configured
-  has_config "^\s*password\s+requisite\s+pam_pwquality.so" $COMMON_PWD_CONFIG_FILE
-  if [ $? -eq 0 ]; then
-    echo "password requisite pam_pwquality.so retry=3" >> $COMMON_PWD_CONFIG_FILE
+  has_config "^\s*password\s+requisite\s+pam_pwquality.so" ${COMMON_PWD_CONFIG_FILE}
+  if [[ $? -eq 0 ]]; then
+    echo "password requisite pam_pwquality.so retry=3" >> ${COMMON_PWD_CONFIG_FILE}
   else
-    has_config "^\s*password\s+requisite\s+pam_pwquality.so\s+retry\s*=\s*3\s*$" $COMMON_PWD_CONFIG_FILE
-    if [ $? -eq 0 ]; then
-      sed -i 's/^\s*password\s\+requisite\s\+pam_pwquality.so/# password requisite pam_pwquality.so/' $COMMON_PWD_CONFIG_FILE
-      echo "password requisite pam_pwquality.so retry=3" >> $COMMON_PWD_CONFIG_FILE
+    has_config "^\s*password\s+requisite\s+pam_pwquality.so\s+retry\s*=\s*3\s*$" ${COMMON_PWD_CONFIG_FILE}
+    if [[ $? -eq 0 ]]; then
+      sed -i 's/^\s*password\s\+requisite\s\+pam_pwquality.so/# password requisite pam_pwquality.so/' ${COMMON_PWD_CONFIG_FILE}
+      echo "password requisite pam_pwquality.so retry=3" >> ${COMMON_PWD_CONFIG_FILE}
     fi
   fi
   CHECKLIST=(
@@ -157,39 +176,38 @@ function configure_pam() {
     "ocredit|^\s*ocredit\s*=\s*-1\s*$|ocredit=-1"
     "lcredit|^\s*lcredit\s*=\s*-1\s*$|lcredit=-1"
   )
-  harden "$CHECKLIST" "$PAM_PWQUALITY_FILE"
+  harden "${CHECKLIST}" "${PAM_PWQUALITY_FILE}"
   # Ensure lockout for failed password attempts is configured
-  mark_hardening $COMMON_AUTH_CONFIG_FILE
-  has_config "^\s*auth\s+required\s+pam_tally2.so" $COMMON_AUTH_CONFIG_FILE
-  if [ $? -eq 0 ]; then
-    echo "auth required pam_tally2.so onerr=fail audit silent deny=5 unlock_time=900" >> $COMMON_AUTH_CONFIG_FILE
+  mark_hardening ${COMMON_AUTH_CONFIG_FILE}
+  has_config "^\s*auth\s+required\s+pam_tally2.so" ${COMMON_AUTH_CONFIG_FILE}
+  if [[ $? -eq 0 ]]; then
+    echo "auth required pam_tally2.so onerr=fail audit silent deny=5 unlock_time=900" >> ${COMMON_AUTH_CONFIG_FILE}
   else
-    has_config "^\s*auth\s+required\s+pam_tally2.so\s+onerr\s*=\s*fail\s+audit\s+silent\s+deny\s*=\s*5\s+unlock_time\s*=\s*900\s*$" $COMMON_AUTH_CONFIG_FILE
-    if [ $? -eq 0 ]; then
-      sed -i "s/^\s*auth\s\+required\s\+pam_tally2.so/# auth required pam_tally2.so/" $COMMON_AUTH_CONFIG_FILE
-      echo "auth required pam_tally2.so onerr=fail audit silent deny=5 unlock_time=900" >> $COMMON_AUTH_CONFIG_FILE
+    has_config "^\s*auth\s+required\s+pam_tally2.so\s+onerr\s*=\s*fail\s+audit\s+silent\s+deny\s*=\s*5\s+unlock_time\s*=\s*900\s*$" ${COMMON_AUTH_CONFIG_FILE}
+    if [[ $? -eq 0 ]]; then
+      sed -i "s/^\s*auth\s\+required\s\+pam_tally2.so/# auth required pam_tally2.so/" ${COMMON_AUTH_CONFIG_FILE}
+      echo "auth required pam_tally2.so onerr=fail audit silent deny=5 unlock_time=900" >> ${COMMON_AUTH_CONFIG_FILE}
     fi
   fi
   # Ensure password reuse is limited
-  has_config "^\s*password\s+required\s+pam_pwhistory.so\s*" $COMMON_PWD_CONFIG_FILE
-  if [ $? -eq 0 ]; then
-    echo "password required pam_pwhistory.so remember=5" >> $COMMON_PWD_CONFIG_FILE
+  has_config "^\s*password\s+required\s+pam_pwhistory.so\s*" ${COMMON_PWD_CONFIG_FILE}
+  if [[ $? -eq 0 ]]; then
+    echo "password required pam_pwhistory.so remember=5" >> ${COMMON_PWD_CONFIG_FILE}
   else
-    has_config "^\s*password\s+required\s+pam_pwhistory.so\s+remember\s*=\s*5\s*$" $COMMON_PWD_CONFIG_FILE
-    if [ $? -eq 0 ]; then
-      sed -i "s/^\s*password\s\+required\s\+pam_pwhistory.so/# password required pam_pwhistory.so/" $COMMON_PWD_CONFIG_FILE
-      echo "password required pam_pwhistory.so remember=5" >> $COMMON_PWD_CONFIG_FILE
+    has_config "^\s*password\s+required\s+pam_pwhistory.so\s+remember\s*=\s*5\s*$" ${COMMON_PWD_CONFIG_FILE}
+    if [[ $? -eq 0 ]]; then
+      sed -i "s/^\s*password\s\+required\s\+pam_pwhistory.so/# password required pam_pwhistory.so/" ${COMMON_PWD_CONFIG_FILE}
+      echo "password required pam_pwhistory.so remember=5" >> ${COMMON_PWD_CONFIG_FILE}
     fi
   fi
   # Ensure password hashing algorithm is SHA-512
-  has_config "^\s*password\s+(\S+\s+)+pam_unix\.so\s+(\S+\s+)*sha512" $COMMON_PWD_CONFIG_FILE
-  if [ $? -eq 0 ]; then
-    echo "password [success=1 default=ignore] pam_unix.so sha512" >> $COMMON_PWD_CONFIG_FILE
+  has_config "^\s*password\s+(\S+\s+)+pam_unix\.so\s+(\S+\s+)*sha512" ${COMMON_PWD_CONFIG_FILE}
+  if [[ $? -eq 0 ]]; then
+    echo "password [success=1 default=ignore] pam_unix.so sha512" >> ${COMMON_PWD_CONFIG_FILE}
   fi
 }
 
 function configure_accounts_envs() {
-  
   CHECKLIST=(
     # Ensure password expiration is 365 days or less
     "PASS_MAX_DAYS|^\s*PASS_MAX_DAYS\s+180\s*$|PASS_MAX_DAYS 180"
@@ -200,23 +218,42 @@ function configure_accounts_envs() {
   )
   harden "$CHECKLIST" "$LOGIN_CONFIG_FILE"
   ACCOUNTS=$(egrep "^[^:]+:[^\!*]" "/etc/shadow" | cut -d: -f1 )
-  for USERNAME in $ACCOUNTS; do
-    NUMBER=$(chage --list $USERNAME | egrep -i "^\s*Maximum\s+number\s+of\s+days" | awk '{print $NF}')
-    if [ "$NUMBER" != "180" ]; then
-      chage --maxdays 180 $USERNAME
+  for USERNAME in ${ACCOUNTS}; do
+    NUMBER=$(chage --list ${USERNAME} | egrep -i "^\s*Maximum\s+number\s+of\s+days" | awk '{print $NF}')
+    if [[ "${NUMBER}" != "180" ]]; then
+      chage --maxdays 180 ${USERNAME}
     fi
-    NUMBER=$(chage --list $USERNAME | egrep -i "^\s*Minimum\s+number\s+of\s+days" | awk '{print $NF}')
-    if [ "$NUMBER" != "7" ]; then
-      chage --mindays 7 $USERNAME 
+    NUMBER=$(chage --list ${USERNAME} | egrep -i "^\s*Minimum\s+number\s+of\s+days" | awk '{print $NF}')
+    if [[ "${NUMBER}" != "7" ]]; then
+      chage --mindays 7 ${USERNAME}
     fi
-    NUMBER=$(chage --list $USERNAME | egrep -i "^\s*Number\s+of\s+days\s+of\s+warning" | awk '{print $NF}')
-    if [ "$NUMBER" != "7" ]; then
-      chage --warndays 7 $USERNAME
+    NUMBER=$(chage --list ${USERNAME} | egrep -i "^\s*Number\s+of\s+days\s+of\s+warning" | awk '{print $NF}')
+    if [[ "${NUMBER}" != "7" ]]; then
+      chage --warndays 7 ${USERNAME}
     fi
   done
   # Ensure default group for the root account is GID 0
   GID=$(egrep "^root:" "/etc/passwd" | cut -f4 -d:)
-  if [ "$GID" != "0" ]; then
+  if [[ "${GID}" != "0" ]]; then
     usermod -g 0 root
   fi
 }
+
+function configure_logging() {
+  # Ensure rsyslog Service is enabled
+  STATUS=$(systemctl is-enabled rsyslog)
+  if [[ "${STATUS}" != "enabled" ]]; then
+    systemctl enable rsyslog
+    echo "AAA"
+  fi
+  # Ensure permissions on all logfiles are configured
+  chmod -R g-wx,o-rwx /var/log/*
+}
+
+print_banner
+backup_files
+configure_cron
+configure_ssh
+configure_pam
+configure_accounts_envs
+configure_logging
